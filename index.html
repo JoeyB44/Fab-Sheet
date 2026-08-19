@@ -659,8 +659,7 @@ function buildPipeDiagramSVG(seg){
     const leader = row < rowCount - 1
       ? `<line class="pd-leader" x1="${xs}" y1="${lineY+10}" x2="${xs}" y2="${labelY+3}"/>`
       : '';
-    const typeAbbrevs = [...new Set(outlets.map(o => ({threaded:'Thd', grooved:'Grv', igs:'IGS'}[o.type])).filter(Boolean))];
-    const labelText = formatFeetInches(pos) + (typeAbbrevs.length ? ' ' + typeAbbrevs.join('/') : '');
+    const labelText = formatFeetInches(pos);
     marks += `
       ${leader}
       <text class="pd-label" x="${xs}" y="${labelY}" text-anchor="middle">${escapeHtml(labelText)}</text>
@@ -1096,9 +1095,8 @@ function buildFabPdf(){
         }
         const labelY = lineY + 22 + row * rowH;
         if(row > 0){ doc.setDrawColor(170); doc.line(x, lineY+10, x, labelY-3); }
-        const typeAbbrev = {threaded:'Thd', grooved:'Grv', igs:'IGS'}[o.type] || '';
         doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(80);
-        doc.text(formatFeetInches(o.pos) + (typeAbbrev ? ' ' + typeAbbrev : ''), x, labelY, {align:'center'});
+        doc.text(formatFeetInches(o.pos), x, labelY, {align:'center'});
       });
       y = lineY + 22 + (rowCount - 1) * rowH + 12;
     } else {
@@ -1135,21 +1133,23 @@ async function sharePdf(){
   const doc = buildFabPdf();
   const blob = doc.output('blob');
   const filename = fabFileName();
-  if(navigator.canShare){
+  const file = new File([blob], filename, {type:'application/pdf'});
+  // Go straight for the native OS share panel (Windows Share, iOS/Android
+  // share sheet, etc.) whenever navigator.share exists at all — checking
+  // navigator.canShare() first can report "unsupported" on some Windows
+  // browser builds even when the share panel would actually work, which
+  // was silently sending people straight to a download instead.
+  if(navigator.share){
     try{
-      const file = new File([blob], filename, {type:'application/pdf'});
-      if(navigator.canShare({files:[file]})){
-        await navigator.share({files:[file], title:'Pipe Fab Sheet', text: jobInfo.name ? 'Fab sheet — ' + jobInfo.name : 'Fab sheet'});
-        return;
-      }
+      await navigator.share({files:[file], title:'Pipe Fab Sheet', text: jobInfo.name ? 'Fab sheet — ' + jobInfo.name : 'Fab sheet'});
+      return;
     }catch(e){
       // If the person cancelled the native share sheet on purpose, just
       // stop quietly — that's expected, not a failure.
       if(e && e.name === 'AbortError') return;
-      // Any other failure (file-sharing unsupported on this browser/OS even
-      // though navigator.canShare exists, blocked by policy, etc.) — fall
-      // through to the reliable download-and-attach path below instead of
-      // silently doing nothing.
+      // Any other failure (files genuinely unsupported, blocked by policy,
+      // etc.) — fall through to the reliable download-and-attach path below
+      // instead of silently doing nothing.
     }
   }
   const url = URL.createObjectURL(blob);
