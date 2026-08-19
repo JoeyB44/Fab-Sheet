@@ -1094,8 +1094,9 @@ function buildFabPdf(){
         }
         const labelY = lineY + 22 + row * rowH;
         if(row > 0){ doc.setDrawColor(170); doc.line(x, lineY+10, x, labelY-3); }
+        const typeAbbrev = {threaded:'Thd', grooved:'Grv', igs:'IGS'}[o.type] || '';
         doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(80);
-        doc.text(formatFeetInches(o.pos), x, labelY, {align:'center'});
+        doc.text(formatFeetInches(o.pos) + (typeAbbrev ? ' ' + typeAbbrev : ''), x, labelY, {align:'center'});
       });
       y = lineY + 22 + (rowCount - 1) * rowH + 12;
     } else {
