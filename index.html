@@ -659,9 +659,11 @@ function buildPipeDiagramSVG(seg){
     const leader = row < rowCount - 1
       ? `<line class="pd-leader" x1="${xs}" y1="${lineY+10}" x2="${xs}" y2="${labelY+3}"/>`
       : '';
+    const typeAbbrevs = [...new Set(outlets.map(o => ({threaded:'Thd', grooved:'Grv', igs:'IGS'}[o.type])).filter(Boolean))];
+    const labelText = formatFeetInches(pos) + (typeAbbrevs.length ? ' ' + typeAbbrevs.join('/') : '');
     marks += `
       ${leader}
-      <text class="pd-label" x="${xs}" y="${labelY}" text-anchor="middle">${escapeHtml(formatFeetInches(pos))}</text>
+      <text class="pd-label" x="${xs}" y="${labelY}" text-anchor="middle">${escapeHtml(labelText)}</text>
     `;
   });
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
@@ -1145,7 +1147,10 @@ async function sharePdf(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  // Revoking too soon corrupts the download if the browser's "Save As"
+  // dialog takes more than a few seconds to complete (common on Windows) —
+  // give it a full minute instead of 4 seconds.
+  setTimeout(()=>URL.revokeObjectURL(url), 60000);
   showToast("PDF downloaded — attach it to your email");
 }
 
