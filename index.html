@@ -1142,7 +1142,15 @@ async function sharePdf(){
         await navigator.share({files:[file], title:'Pipe Fab Sheet', text: jobInfo.name ? 'Fab sheet — ' + jobInfo.name : 'Fab sheet'});
         return;
       }
-    }catch(e){ return; }
+    }catch(e){
+      // If the person cancelled the native share sheet on purpose, just
+      // stop quietly — that's expected, not a failure.
+      if(e && e.name === 'AbortError') return;
+      // Any other failure (file-sharing unsupported on this browser/OS even
+      // though navigator.canShare exists, blocked by policy, etc.) — fall
+      // through to the reliable download-and-attach path below instead of
+      // silently doing nothing.
+    }
   }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = filename;
