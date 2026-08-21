@@ -297,6 +297,98 @@ const PRICE_CATALOG = [{"cat": "Sch 40 Blk Pipe", "items": [{"n": "1/2\"", "u": 
 
 function findCat(name){ return PRICE_CATALOG.find(c => c.cat === name); }
 
+// Fittings catalog — straight Tee/90°/Union/Coupling sized to match the run
+// pipe exactly, plus Reducing Couplings keyed by both sizes. Pulled directly
+// from FIRE_INVENTORY.xlsx's D.I. (threaded) fitting sections.
+const FITTINGS_CATALOG = [
+  {key:'tee', label:'Tee', items:[
+    {n:'1/2"',p:3.02},{n:'3/4"',p:3.61},{n:'1"',p:2.94},
+    {n:'1-1/4"',p:7.58},{n:'1-1/2"',p:9},{n:'2"',p:13.56}
+  ]},
+  {key:'reducingtee', label:'Reducing Tee', items:[
+    {n:'1"x1"x1/2"',p:3.39},{n:'1"x1"x3/4"',p:4.08},{n:'1"x1"x1-1/4"',p:5.5},
+    {n:'1-1/4"x1"x1/2"',p:5.5},{n:'1-1/4"x1"x3/4"',p:6.22},{n:'1-1/4"x1"x1"',p:5.5},{n:'1-1/4"x1"x1-1/4"',p:5.5},
+    {n:'1-1/4"x1-1/4"x1/2"',p:5.28},{n:'1-1/4"x1-1/4"x3/4"',p:5.92},{n:'1-1/4"x1-1/4"x1"',p:5.42},{n:'1-1/4"x1-1/4"x1-1/2"',p:9.85},
+    {n:'1-1/2"x1"x1-1/4"',p:12.31},{n:'1-1/2"x1"x1-1/2"',p:7.07},{n:'1-1/2"x1"x1"',p:9.76},
+    {n:'1-1/2"x1-1/4"x1/2"',p:7.65},{n:'1-1/2"x1-1/4"x3/4"',p:7.65},{n:'1-1/2"x1-1/4"x1"',p:7.03},{n:'1-1/2"x1-1/4"x1-1/4"',p:6.89},
+    {n:'1-1/2"x1-1/2"x1/2"',p:7.65},{n:'1-1/2"x1-1/2"x3/4"',p:6.89},{n:'1-1/2"x1-1/2"x1"',p:9.85},{n:'1-1/2"x1-1/2"x1-1/4"',p:14.76},{n:'1-1/2"x1-1/2"x2"',p:9.98},
+    {n:'2"x1"x1"',p:11.32},{n:'2"x1"x2"',p:11.32},
+    {n:'2"x1-1/2"x1/2"',p:10.03},{n:'2"x1-1/2"x3/4"',p:15.26},{n:'2"x1-1/2"x1"',p:14.76},{n:'2"x1-1/2"x1-1/4"',p:9.98},{n:'2"x1-1/2"x1-1/2"',p:9.98},
+    {n:'2"x2"x1/2"',p:9.98},{n:'2"x2"x3/4"',p:10.83},{n:'2"x2"x1"',p:11.46},{n:'2"x2"x1-1/4"',p:9.11},{n:'2"x2"x1-1/2"',p:9.64}
+  ]},
+  {key:'90el', label:'90° Elbow', items:[
+    {n:'1/2"',p:1.17},{n:'3/4"',p:1.57},{n:'1"',p:2.1},
+    {n:'1-1/4"',p:4.53},{n:'1-1/2"',p:6.54},{n:'2"',p:9.9},{n:'2-1/2"',p:24.13}
+  ]},
+  {key:'union', label:'Union', items:[
+    {n:'1/2"',p:6.54},{n:'3/4"',p:7.52},{n:'1"',p:10.83},
+    {n:'1-1/4"',p:11.77},{n:'1-1/2"',p:12.76},{n:'2"',p:14.83},{n:'2-1/2"',p:44.2}
+  ]},
+  {key:'coupling', label:'Coupling', items:[
+    {n:'1/2"',p:1.78},{n:'3/4"',p:1.94},{n:'1"',p:2.51},
+    {n:'1-1/4"',p:3.68},{n:'1-1/2"',p:3.2},{n:'2"',p:4.78}
+  ]},
+  {key:'redcoupling', label:'Reducing Coupling', items:[
+    {n:'3/4"x1/2"',p:2.04},{n:'1"x1/2"',p:1.65},{n:'1"x3/4"',p:3.2},
+    {n:'1-1/4"x1/2"',p:4.79},{n:'1-1/4"x3/4"',p:4.11},{n:'1-1/4"x1"',p:4.11},
+    {n:'1-1/2"x1/2"',p:3.34},{n:'1-1/2"x3/4"',p:6.89},{n:'1-1/2"x1"',p:6.07},{n:'1-1/2"x1-1/4"',p:5.44},
+    {n:'2"x1"',p:8.42},{n:'2"x1-1/4"',p:8.63},{n:'2"x1-1/2"',p:7.76}
+  ]}
+];
+function findFittingCat(key){ return FITTINGS_CATALOG.find(c => c.key === key); }
+// Fittings only make sense for Sch 40, 1" through 2", with a threaded end
+// prep — GG is groove-only so it's excluded; TG/TT/TP all involve a thread.
+const THREADED_END_PREPS = ['tg', 'tt', 'tp'];
+function isFittingsEligible(seg){
+  if(seg.sch !== '40') return false;
+  if(!THREADED_END_PREPS.includes(seg.endPrep)) return false;
+  const size = seg.size ? parseInchSize(seg.size) : null;
+  if(size == null) return false;
+  return size >= 1 - 1e-6 && size <= 2 + 1e-6;
+}
+function fittingLabel(catKey, itemName){
+  const cat = findFittingCat(catKey);
+  const displayName = itemName.replace(/x/g, ' x '); // "1"x1"x1/2"" -> "1" x 1" x 1/2"" for display only
+  return cat ? `${cat.label} — ${displayName}` : displayName;
+}
+function fittingPrice(catKey, itemName){
+  const cat = findFittingCat(catKey);
+  const item = cat && cat.items.find(i => i.n === itemName);
+  return item ? item.p : null;
+}
+// Every fitting option valid for a given run pipe size: straight fittings
+// sized exactly to it, plus reducing couplings where it appears on either side.
+function getFittingOptionsForSize(sizeStr){
+  const target = parseInchSize(sizeStr);
+  if(target == null) return [];
+  const options = [];
+  ['tee','90el','union','coupling'].forEach(key=>{
+    const cat = findFittingCat(key);
+    cat.items.forEach(item=>{
+      if(Math.abs(parseInchSize(item.n) - target) < 1e-6){
+        options.push({catKey:key, itemName:item.n, label:fittingLabel(key,item.n), price:item.p});
+      }
+    });
+  });
+  const redCat = findFittingCat('redcoupling');
+  redCat.items.forEach(item=>{
+    const parts = item.n.split('x');
+    const leading = parseInchSize(parts[0]);
+    if(Math.abs(leading-target) < 1e-6){
+      options.push({catKey:'redcoupling', itemName:item.n, label:fittingLabel('redcoupling',item.n), price:item.p});
+    }
+  });
+  const reducingTeeCat = findFittingCat('reducingtee');
+  reducingTeeCat.items.forEach(item=>{
+    const parts = item.n.split('x');
+    const leading = parseInchSize(parts[0]);
+    if(Math.abs(leading-target) < 1e-6){
+      options.push({catKey:'reducingtee', itemName:item.n, label:fittingLabel('reducingtee',item.n), price:item.p});
+    }
+  });
+  return options;
+}
+
 // ---------------- Size parsing (e.g. '1-1/4"' -> 1.25) ----------------
 function parseInchSize(str){
   if(!str) return null;
@@ -569,6 +661,12 @@ document.getElementById('priceToggleBtn').addEventListener('click', ()=>{
 
 async function loadFabSheet(){
   try{ const res = await storageGet(FAB_KEY); if(res && res.value) fabSheet = JSON.parse(res.value); }catch(e){ fabSheet = []; }
+  // Pipe runs saved before the Fittings feature existed won't have this
+  // array — patch them up so every segment has one, regardless of age.
+  fabSheet.forEach(seg => {
+    if(!seg.fittings) seg.fittings = [];
+    if(seg.endPrep === 'gt') seg.endPrep = 'tg'; // GT and TG merged into one option
+  });
   renderFabSheet();
 }
 let fabSaveTimer = null;
@@ -580,6 +678,7 @@ function saveFabSheet(){
 // ---------------- Pipe segment model ----------------
 function findSeg(id){ return fabSheet.find(s=>s.id===id); }
 function findOutlet(seg, outletId){ return seg && seg.outlets.find(o=>o.id===outletId); }
+function findFitting(seg, fittingId){ return seg && (seg.fittings||[]).find(f=>f.id===fittingId); }
 
 function newSegment(){
   return {
@@ -587,7 +686,8 @@ function newSegment(){
     sch: '40', material: 'black', size: '',
     endPrep: '',
     length: null, lengthText: '', outletSize: '',
-    outlets: []
+    outlets: [],
+    fittings: []
   };
 }
 function addPipeSegment(){
@@ -609,10 +709,15 @@ function segmentCost(seg){
     const p = getOutletPrice(o.type, seg.outletSize, seg.size);
     if(p != null) outletsCost += p;
   });
+  let fittingsCost = 0;
+  (seg.fittings || []).forEach(f=>{
+    const p = fittingPrice(f.catKey, f.itemName);
+    if(p != null) fittingsCost += p * (parseFloat(f.qty) || 1);
+  });
   return {
-    pipePricePerFt, pipeCost, outletsCost,
-    unitTotal: pipeCost + outletsCost,
-    runTotal: (pipeCost + outletsCost) * (qty || 1)
+    pipePricePerFt, pipeCost, outletsCost, fittingsCost,
+    unitTotal: pipeCost + outletsCost + fittingsCost,
+    runTotal: (pipeCost + outletsCost + fittingsCost) * (qty || 1)
   };
 }
 function grandTotal(){
@@ -769,6 +874,17 @@ function renderPipeCard(seg){
     </div>`;
   }).join('');
 
+  const fittingEligible = isFittingsEligible(seg);
+  const fittingOptions = fittingEligible ? getFittingOptionsForSize(seg.size) : [];
+  const currentFitting = (seg.fittings && seg.fittings[0]) || null;
+  const fittingStillValid = currentFitting && fittingOptions.some(o => o.catKey===currentFitting.catKey && o.itemName===currentFitting.itemName);
+  const fittingSelectHtml = `
+    <select data-field="fittingChoice" data-seg="${seg.id}">
+      <option value="">None</option>
+      ${fittingOptions.map(o=>`<option value="${o.catKey}|${escapeHtml(o.itemName)}" ${(currentFitting && o.catKey===currentFitting.catKey && o.itemName===currentFitting.itemName)?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}
+      ${(currentFitting && !fittingStillValid) ? `<option value="${currentFitting.catKey}|${escapeHtml(currentFitting.itemName)}" selected>${escapeHtml(fittingLabel(currentFitting.catKey,currentFitting.itemName))} (no longer valid)</option>` : ''}
+    </select>`;
+
   return `
   <div class="pipe-card" data-seg="${seg.id}">
     <div class="pipe-card-header">
@@ -807,16 +923,24 @@ function renderPipeCard(seg){
     <div class="pipe-field" style="margin-bottom:10px;">
       <label>End Prep</label>
       <div class="toggle-row">
-        ${epChip('gg','GG')}${epChip('tg','TG')}${epChip('gt','GT')}${epChip('tt','TT')}${epChip('tp','TP')}
+        ${epChip('gg','GG')}${seg.sch==='10' ? '' : `${epChip('tg','TG')}${epChip('tt','TT')}${epChip('tp','TP')}`}
       </div>
+      ${seg.sch==='10' ? `<div style="font-size:11.5px; color:var(--steel); margin-top:6px;">Threaded end preps aren't available on Sch 10 — pipe wall is too thin to thread.</div>` : ''}
     </div>
 
-    <div class="pipe-field">
-      <label>Material</label>
-      <div class="toggle-row">
-        <button class="toggle-chip ${seg.material==='black'?'active':''}" data-action="set-material" data-seg="${seg.id}" data-value="black">Black</button>
-        <button class="toggle-chip ${seg.material==='galv'?'active':''}" data-action="set-material" data-seg="${seg.id}" data-value="galv">Galv</button>
+    <div class="pipe-field-row" style="margin-bottom:0;">
+      <div class="pipe-field">
+        <label>Material</label>
+        <div class="toggle-row">
+          <button class="toggle-chip ${seg.material==='black'?'active':''}" data-action="set-material" data-seg="${seg.id}" data-value="black">Black</button>
+          <button class="toggle-chip ${seg.material==='galv'?'active':''}" data-action="set-material" data-seg="${seg.id}" data-value="galv">Galv</button>
+        </div>
       </div>
+      ${fittingEligible ? `
+      <div class="pipe-field" style="max-width:200px;">
+        <label>Fitting</label>
+        ${fittingSelectHtml}
+      </div>` : ''}
     </div>
 
     <div class="outlets-block">
@@ -826,9 +950,13 @@ function renderPipeCard(seg){
       <div class="pipe-diagram-wrap">
         <div class="pipe-diagram" id="pd-${seg.id}">${buildPipeDiagramSVG(seg)}</div>
       </div>
+    </div>
+
+    <div class="outlets-block">
       ${showPricing ? `<div class="cost-breakdown">
         <span>Pipe: ${cost.pipePricePerFt!=null ? fmtCurrency(cost.pipePricePerFt)+'/ft' : '—'} × ${seg.length!=null?formatFeetInches(seg.length):'—'} = ${fmtCurrency(cost.pipeCost)}</span>
         <span>Outlets: ${fmtCurrency(cost.outletsCost)}</span>
+        <span>Fittings: ${fmtCurrency(cost.fittingsCost)}</span>
         <span>× Qty ${seg.qty||1} = <b style="color:var(--ink);">${fmtCurrency(cost.runTotal)}</b></span>
       </div>` : ''}
     </div>
@@ -866,6 +994,8 @@ document.getElementById('fabCards').addEventListener('click', (e)=>{
   if(action === 'set-sch'){
     seg.sch = btn.dataset.value;
     if(!getPipeSizeOptions(seg.sch, seg.material).includes(seg.size)) seg.size = '';
+    if(seg.sch === '10' && THREADED_END_PREPS.includes(seg.endPrep)) seg.endPrep = '';
+    if(!isFittingsEligible(seg)) seg.fittings = [];
     saveFabSheet(); renderFabSheet();
   } else if(action === 'set-material'){
     seg.material = btn.dataset.value;
@@ -873,6 +1003,7 @@ document.getElementById('fabCards').addEventListener('click', (e)=>{
     saveFabSheet(); renderFabSheet();
   } else if(action === 'set-endprep'){
     seg.endPrep = (seg.endPrep === btn.dataset.value) ? '' : btn.dataset.value;
+    if(!isFittingsEligible(seg)) seg.fittings = [];
     saveFabSheet(); renderFabSheet();
   } else if(action === 'add-outlet'){
     seg.outlets.push({id:uid(), pos:null, posText:'', type:'', direction:''});
@@ -921,6 +1052,7 @@ document.getElementById('fabCards').addEventListener('change', (e)=>{
   if(field === 'size'){
     seg.size = el.value;
     if(seg.outletSize && !getOutletSizeOptionsForRun(seg.size).includes(seg.outletSize)) seg.outletSize = '';
+    if(!isFittingsEligible(seg)) seg.fittings = [];
     saveFabSheet(); renderFabSheet();
   }
   else if(field === 'outletSize'){ seg.outletSize = el.value; saveFabSheet(); renderFabSheet(); }
@@ -931,6 +1063,14 @@ document.getElementById('fabCards').addEventListener('change', (e)=>{
   else if(field === 'outletDir'){
     const outlet = findOutlet(seg, el.dataset.outlet);
     if(outlet){ outlet.direction = el.value; saveFabSheet(); updateFabDiagram(seg.id); }
+  }
+  else if(field === 'fittingChoice'){
+    if(!el.value){ seg.fittings = []; }
+    else{
+      const [catKey, itemName] = el.value.split('|');
+      seg.fittings = [{id: (seg.fittings[0] && seg.fittings[0].id) || uid(), catKey, itemName, qty:'1'}];
+    }
+    saveFabSheet(); renderFabSheet();
   }
 });
 document.getElementById('fabCards').addEventListener('focusout', (e)=>{
@@ -973,10 +1113,13 @@ function buildPrintArea(){
   const wrap = document.getElementById('printCards');
   wrap.innerHTML = fabSheet.map((seg, idx)=>{
     const cost = segmentCost(seg);
+    const fittingsList = (seg.fittings||[]).filter(f=>f.catKey && f.itemName)
+      .map(f => `${f.qty||1}× ${fittingLabel(f.catKey, f.itemName)}`).join(', ');
     return `<div class="pf-card">
       <div class="pf-card-title"><span>Pipe ${idx+1}${seg.qty ? ' — Qty ' + escapeHtml(seg.qty) : ''}</span>${showPricing ? `<span>${fmtCurrency(cost.runTotal)}</span>` : ''}</div>
       <div class="pf-meta">${escapeHtml(segMetaParts(seg).join(' · '))}</div>
       <div class="pf-diagram">${buildPipeDiagramSVG(seg)}</div>
+      ${fittingsList ? `<div class="pf-meta">Fittings: ${escapeHtml(fittingsList)}</div>` : ''}
     </div>`;
   }).join('');
   const totalEl = document.getElementById('printTotal');
@@ -1141,6 +1284,13 @@ function buildFabPdf(){
       doc.setFont('helvetica','italic'); doc.setFontSize(8); doc.setTextColor(150);
       doc.text('(no length entered)', marginX, y+4); y += 16;
     }
+    const fittingsList = (seg.fittings||[]).filter(f=>f.catKey && f.itemName)
+      .map(f => `${f.qty||1}× ${fittingLabel(f.catKey, f.itemName)}`).join(', ');
+    if(fittingsList){
+      ensureSpace(14);
+      doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(90);
+      doc.text('Fittings: ' + fittingsList, marginX, y); y += 13;
+    }
     y += 8;
   });
 
@@ -1184,9 +1334,9 @@ const GRAPH_CONFIG = {
   // Sharing links for the two destination OneDrive folders (already set from your links):
   // "When Convenient" reuses the original New Fab Sheets folder; "By End of
   // Day" is a separate folder. The PDF goes to whichever one is selected —
-  whenConvenientFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/fpshop_pipco-co_com/IgDFmGboTCf0Ra6JlhU64eeBAQgUHxZfMfQprcNKCWBt9Qc?e=VmvN4z',
-  byEndOfDayFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/fpshop_pipco-co_com/IgCo5h0EIBqzRrD1GQdoY-5-AT2YiLQ86naf1eEmpn_JP58?e=sHqoEZ',
-  fabSheetsDataFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/fpshop_pipco-co_com/IgDQFTVYNgs7S6Mwjf535AMRAatqla7PxnMrFBiWrJJEjhk?e=zeiPBK',
+  whenConvenientFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/jeremyg_pipco-co_com/IgA0aHtqOYs4Rpsc4Gzwwy-9AZkGE82wO91j6Z8HaNB43Do?e=cu9A05',
+  byEndOfDayFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/jeremyg_pipco-co_com/IgBOQUjox_8lR5i1cz47i3XdAY6nXnEOecbVWl4Jm-ItS74?e=AJNV1m',
+  fabSheetsDataFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/fpshop_pipco-co_com/IgA1IiFgNUfSRKJ4IjQ3Ej3GAdziJr9ln10UmvFTA_HI7bc?e=Y5EN48',
 };
 
 let msalInstance = null;
@@ -1263,6 +1413,7 @@ function buildFabJson(){
   const threadedOutlets = [];
   const groovedOutlets = [];
   const igsOutlets = [];
+  const fittings = [];
   const OUTLET_ARRAYS = { threaded: threadedOutlets, grooved: groovedOutlets, igs: igsOutlets };
 
   fabSheet.forEach((seg, idx)=>{
@@ -1274,6 +1425,7 @@ function buildFabJson(){
       schedule: 'Sch ' + seg.sch,
       material: seg.material === 'galv' ? 'Galv' : 'Black',
       size: seg.size || '',
+      sizeDecimal: seg.size ? parseInchSize(seg.size) : null,
       lengthFtIn: seg.length != null ? formatFeetInches(seg.length) : '',
       lengthDecimalFt: seg.length != null ? Number(seg.length.toFixed(3)) : null
     };
@@ -1281,6 +1433,7 @@ function buildFabJson(){
       pipeEntry.pricePerFt = cost.pipePricePerFt != null ? cost.pipePricePerFt : null;
       pipeEntry.pipeCost = Number(cost.pipeCost.toFixed(2));
       pipeEntry.outletsCost = Number(cost.outletsCost.toFixed(2));
+      pipeEntry.fittingsCost = Number(cost.fittingsCost.toFixed(2));
       pipeEntry.runTotal = Number(cost.runTotal.toFixed(2));
     }
     pipeLength.push(pipeEntry);
@@ -1292,15 +1445,32 @@ function buildFabJson(){
       const outletEntry = {
         pipeNum,
         outletSize: seg.outletSize || '',
+        outletSizeDecimal: seg.outletSize ? parseInchSize(seg.outletSize) : null,
         positionFromLeft: o.pos != null ? formatFeetInches(o.pos) : '',
         direction: dirLabel,
-        runPipeSize: seg.size || ''
+        runPipeSize: seg.size || '',
+        runPipeSizeDecimal: seg.size ? parseInchSize(seg.size) : null
       };
       if(showPricing){
         const price = getOutletPrice(o.type, seg.outletSize, seg.size);
         outletEntry.unitPrice = price != null ? price : null;
       }
       targetArray.push(outletEntry);
+    });
+
+    (seg.fittings || []).forEach(f=>{
+      const fittingEntry = {
+        pipeNum,
+        fittingType: f.catKey,
+        fittingLabel: fittingLabel(f.catKey, f.itemName),
+        size: f.itemName,
+        qty: parseFloat(f.qty) || 1
+      };
+      if(showPricing){
+        const price = fittingPrice(f.catKey, f.itemName);
+        fittingEntry.unitPrice = price != null ? price : null;
+      }
+      fittings.push(fittingEntry);
     });
   });
 
@@ -1311,7 +1481,8 @@ function buildFabJson(){
     pipeLength,
     threadedOutlets,
     groovedOutlets,
-    igsOutlets
+    igsOutlets,
+    fittings
   };
 }
 
