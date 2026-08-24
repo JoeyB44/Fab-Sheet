@@ -1334,7 +1334,7 @@ const GRAPH_CONFIG = {
   // Sharing links for the two destination OneDrive folders (already set from your links):
   // "When Convenient" reuses the original New Fab Sheets folder; "By End of
   // Day" is a separate folder. The PDF goes to whichever one is selected —
-  whenConvenientFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/jeremyg_pipco-co_com/IgA0aHtqOYs4Rpsc4Gzwwy-9AZkGE82wO91j6Z8HaNB43Do?e=cu9A05',
+  whenConvenientFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/jeremyg_pipco-co_com/IgA0aHtqOYs4Rpsc4Gzwwy-9AZkGE82wO91j6Z8HaNB43Do?e=9ZAwW3',
   byEndOfDayFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/jeremyg_pipco-co_com/IgBOQUjox_8lR5i1cz47i3XdAY6nXnEOecbVWl4Jm-ItS74?e=AJNV1m',
   fabSheetsDataFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/fpshop_pipco-co_com/IgA1IiFgNUfSRKJ4IjQ3Ej3GAdziJr9ln10UmvFTA_HI7bc?e=Y5EN48',
 };
@@ -1356,7 +1356,12 @@ function getMsalInstance(){
 
 async function getGraphToken(){
   const msalApp = getMsalInstance();
-  const scopes = ['Files.ReadWrite'];
+  // Files.ReadWrite.All (not just Files.ReadWrite) is needed here because
+  // some folders (e.g. When Convenient / By End of Day) are owned by a
+  // different person's OneDrive than the one signed in — resolving those
+  // via Graph's /shares endpoint needs the broader scope even though the
+  // person can already open the folder fine in a normal browser tab.
+  const scopes = ['Files.ReadWrite.All'];
   const accounts = msalApp.getAllAccounts();
   if(accounts.length > 0){
     try{
