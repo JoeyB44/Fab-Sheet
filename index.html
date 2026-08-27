@@ -128,9 +128,10 @@ main{padding:14px;}
 .outlets-block-label{font-family:'JetBrains Mono',monospace; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--steel); margin-bottom:8px;}
 .outlet-row{display:flex; gap:8px; align-items:center; margin-bottom:7px; flex-wrap:wrap;}
 .outlet-row input, .outlet-row select{padding:7px 9px; border:1.5px solid var(--line); border-radius:7px; background:var(--paper); font-size:13px; color:var(--ink);}
-.outlet-row .outlet-pos{width:120px; flex:0 0 auto;}
-.outlet-row .outlet-type{flex:1 1 140px; min-width:0;}
-.outlet-row .outlet-dir{flex:0 0 110px;}
+.outlet-row .outlet-pos{width:140px; flex:0 0 140px;}
+.outlet-row .outlet-type{flex:0 0 140px; min-width:0;}
+.outlet-row .outlet-size{flex:0 0 140px; min-width:0;}
+.outlet-row .outlet-dir{flex:0 0 140px; min-width:0;}
 .outlet-row .outlet-price{flex:0 0 auto; width:64px; font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--steel); text-align:right;}
 .outlet-row input:focus, .outlet-row select:focus{outline:none; border-color:var(--orange);}
 .outlet-del{background:none; border:none; color:var(--steel); font-size:16px; cursor:pointer; flex:0 0 auto; padding:4px;}
@@ -242,6 +243,7 @@ main{padding:14px;}
       <div class="toggle-row">
         <button class="toggle-chip active" id="priorityConvenientBtn" data-priority="convenient">When Convenient</button>
         <button class="toggle-chip" id="priorityEodBtn" data-priority="eod">By End of Day</button>
+        <button class="toggle-chip" id="priorityServiceBtn" data-priority="service">Service</button>
       </div>
     </div>
 
@@ -345,6 +347,13 @@ function isFittingsEligible(seg){
   const size = seg.size ? parseInchSize(seg.size) : null;
   if(size == null) return false;
   return size >= 1 - 1e-6 && size <= 2 + 1e-6;
+}
+// A run that's TT (Thread x Thread) or TP (Thread x Plain) is a short
+// fitting-to-fitting/nipple-style connector — it doesn't get branch
+// outlets, so the Add Outlet option is hidden for those end preps.
+const NO_OUTLET_END_PREPS = ['tt', 'tp'];
+function outletsAllowed(seg){
+  return !NO_OUTLET_END_PREPS.includes(seg.endPrep);
 }
 function fittingLabel(catKey, itemName){
   const cat = findFittingCat(catKey);
@@ -600,6 +609,7 @@ async function loadJobInfo(){
 function updatePriorityButtons(){
   document.getElementById('priorityConvenientBtn').classList.toggle('active', jobInfo.priority === 'convenient');
   document.getElementById('priorityEodBtn').classList.toggle('active', jobInfo.priority === 'eod');
+  document.getElementById('priorityServiceBtn').classList.toggle('active', jobInfo.priority === 'service');
 }
 let infoSaveTimer = null;
 function saveJobInfo(){
@@ -620,6 +630,11 @@ document.getElementById('priorityConvenientBtn').addEventListener('click', ()=>{
 });
 document.getElementById('priorityEodBtn').addEventListener('click', ()=>{
   jobInfo.priority = 'eod';
+  updatePriorityButtons();
+  saveJobInfo();
+});
+document.getElementById('priorityServiceBtn').addEventListener('click', ()=>{
+  jobInfo.priority = 'service';
   updatePriorityButtons();
   saveJobInfo();
 });
@@ -666,6 +681,15 @@ async function loadFabSheet(){
   fabSheet.forEach(seg => {
     if(!seg.fittings) seg.fittings = [];
     if(seg.endPrep === 'gt') seg.endPrep = 'tg'; // GT and TG merged into one option
+    // Outlet size used to live once per pipe run (seg.outletSize), shared by
+    // every outlet on it. Now each outlet has its own size — for old saved
+    // runs, carry that shared value onto any outlet that doesn't have one
+    // of its own yet, so nothing silently loses its size on first load.
+    if(seg.outletSize){
+      (seg.outlets||[]).forEach(o => { if(!o.size) o.size = seg.outletSize; });
+      delete seg.outletSize;
+    }
+    (seg.outlets||[]).forEach(o => { if(o.size === undefined) o.size = ''; });
   });
   renderFabSheet();
 }
@@ -685,7 +709,7 @@ function newSegment(){
     id: uid(), qty: '1',
     sch: '40', material: 'black', size: '',
     endPrep: '',
-    length: null, lengthText: '', outletSize: '',
+    length: null, lengthText: '',
     outlets: [],
     fittings: []
   };
@@ -706,7 +730,7 @@ function segmentCost(seg){
   const pipeCost = (pipePricePerFt != null && seg.length != null) ? pipePricePerFt * seg.length : 0;
   let outletsCost = 0;
   (seg.outlets || []).forEach(o=>{
-    const p = getOutletPrice(o.type, seg.outletSize, seg.size);
+    const p = getOutletPrice(o.type, o.size, seg.size);
     if(p != null) outletsCost += p;
   });
   let fittingsCost = 0;
@@ -852,7 +876,7 @@ function renderPipeCard(seg){
   const epChip = (key, label) => `<button class="toggle-chip ${seg.endPrep===key?'active':''}" data-action="set-endprep" data-seg="${seg.id}" data-value="${key}">${label}</button>`;
 
   const outletsHtml = (seg.outlets || []).map(o=>{
-    const price = getOutletPrice(o.type, seg.outletSize, seg.size);
+    const price = getOutletPrice(o.type, o.size, seg.size);
     return `
     <div class="outlet-row">
       <input class="outlet-pos" type="text" placeholder="From left (e.g. 10-6)" value="${escapeHtml(o.posText||'')}" data-field="outletPos" data-seg="${seg.id}" data-outlet="${o.id}">
@@ -861,6 +885,9 @@ function renderPipeCard(seg){
         <option value="threaded" ${o.type==='threaded'?'selected':''}>Threaded outlet</option>
         <option value="grooved" ${o.type==='grooved'?'selected':''}>Grooved outlet</option>
         <option value="igs" ${o.type==='igs'?'selected':''}>IGS outlet</option>
+      </select>
+      <select class="outlet-size" data-field="outletItemSize" data-seg="${seg.id}" data-outlet="${o.id}">
+        ${sizeOptionsHtml(outletSizeOptions, o.size)}
       </select>
       <select class="outlet-dir" data-field="outletDir" data-seg="${seg.id}" data-outlet="${o.id}">
         <option value="">Direction…</option>
@@ -906,10 +933,6 @@ function renderPipeCard(seg){
         <label>Length</label>
         <input type="text" placeholder="e.g. 10-6" value="${escapeHtml(seg.lengthText||'')}" data-field="length" data-seg="${seg.id}">
       </div>
-      <div class="pipe-field">
-        <label>Outlet Size</label>
-        <select data-field="outletSize" data-seg="${seg.id}">${sizeOptionsHtml(outletSizeOptions, seg.outletSize)}</select>
-      </div>
     </div>
 
     <div class="pipe-field" style="margin-bottom:10px;">
@@ -945,8 +968,10 @@ function renderPipeCard(seg){
 
     <div class="outlets-block">
       <div class="outlets-block-label">Outlets (measured from left end)</div>
-      ${outletsHtml}
-      <button class="add-outlet-btn" data-action="add-outlet" data-seg="${seg.id}">+ Add Outlet</button>
+      ${outletsAllowed(seg) ? `
+        ${outletsHtml}
+        <button class="add-outlet-btn" data-action="add-outlet" data-seg="${seg.id}">+ Add Outlet</button>
+      ` : `<div style="font-size:12px; color:var(--steel); margin-bottom:8px;">No outlets on a TT/TP run — this end prep is a fitting-to-fitting connector.</div>`}
       <div class="pipe-diagram-wrap">
         <div class="pipe-diagram" id="pd-${seg.id}">${buildPipeDiagramSVG(seg)}</div>
       </div>
@@ -1004,9 +1029,11 @@ document.getElementById('fabCards').addEventListener('click', (e)=>{
   } else if(action === 'set-endprep'){
     seg.endPrep = (seg.endPrep === btn.dataset.value) ? '' : btn.dataset.value;
     if(!isFittingsEligible(seg)) seg.fittings = [];
+    if(!outletsAllowed(seg)) seg.outlets = [];
     saveFabSheet(); renderFabSheet();
   } else if(action === 'add-outlet'){
-    seg.outlets.push({id:uid(), pos:null, posText:'', type:'', direction:''});
+    if(!outletsAllowed(seg)) return;
+    seg.outlets.push({id:uid(), pos:null, posText:'', type:'', direction:'', size:''});
     saveFabSheet(); renderFabSheet();
   } else if(action === 'del-outlet'){
     seg.outlets = seg.outlets.filter(o=>o.id!==btn.dataset.outlet);
@@ -1051,11 +1078,15 @@ document.getElementById('fabCards').addEventListener('change', (e)=>{
   if(!seg) return;
   if(field === 'size'){
     seg.size = el.value;
-    if(seg.outletSize && !getOutletSizeOptionsForRun(seg.size).includes(seg.outletSize)) seg.outletSize = '';
+    const validSizes = getOutletSizeOptionsForRun(seg.size);
+    (seg.outlets||[]).forEach(o => { if(o.size && !validSizes.includes(o.size)) o.size = ''; });
     if(!isFittingsEligible(seg)) seg.fittings = [];
     saveFabSheet(); renderFabSheet();
   }
-  else if(field === 'outletSize'){ seg.outletSize = el.value; saveFabSheet(); renderFabSheet(); }
+  else if(field === 'outletItemSize'){
+    const outlet = findOutlet(seg, el.dataset.outlet);
+    if(outlet){ outlet.size = el.value; saveFabSheet(); renderFabSheet(); }
+  }
   else if(field === 'outletType'){
     const outlet = findOutlet(seg, el.dataset.outlet);
     if(outlet){ outlet.type = el.value; saveFabSheet(); renderFabSheet(); }
@@ -1094,7 +1125,6 @@ function segMetaParts(seg){
   const parts = [];
   if(seg.size) parts.push('Size ' + seg.size);
   if(seg.length != null) parts.push('Length ' + formatFeetInches(seg.length));
-  if(seg.outletSize) parts.push('Outlet size ' + seg.outletSize);
   parts.push('Sch ' + seg.sch);
   if(seg.endPrep) parts.push(seg.endPrep.toUpperCase());
   parts.push(seg.material === 'galv' ? 'Galv' : 'Black');
@@ -1336,6 +1366,7 @@ const GRAPH_CONFIG = {
   // Day" is a separate folder. The PDF goes to whichever one is selected —
   whenConvenientFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/jeremyg_pipco-co_com/IgA0aHtqOYs4Rpsc4Gzwwy-9AZkGE82wO91j6Z8HaNB43Do?e=9ZAwW3',
   byEndOfDayFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/jeremyg_pipco-co_com/IgBOQUjox_8lR5i1cz47i3XdAY6nXnEOecbVWl4Jm-ItS74?e=AJNV1m',
+  serviceFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/jeremyg_pipco-co_com/IgAbdvRRYJvWS4F3eMZQ_UNlAUwD-ryiRM-Xh0Xd7gnaTxs?e=r6Efmj',
   fabSheetsDataFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/fpshop_pipco-co_com/IgA1IiFgNUfSRKJ4IjQ3Ej3GAdziJr9ln10UmvFTA_HI7bc?e=Y5EN48',
 };
 
@@ -1449,15 +1480,15 @@ function buildFabJson(){
       const dirLabel = {up:'Up', down:'Down', left:'Left (away)', right:'Right (toward)'}[o.direction] || '';
       const outletEntry = {
         pipeNum,
-        outletSize: seg.outletSize || '',
-        outletSizeDecimal: seg.outletSize ? parseInchSize(seg.outletSize) : null,
+        outletSize: o.size || '',
+        outletSizeDecimal: o.size ? parseInchSize(o.size) : null,
         positionFromLeft: o.pos != null ? formatFeetInches(o.pos) : '',
         direction: dirLabel,
         runPipeSize: seg.size || '',
         runPipeSizeDecimal: seg.size ? parseInchSize(seg.size) : null
       };
       if(showPricing){
-        const price = getOutletPrice(o.type, seg.outletSize, seg.size);
+        const price = getOutletPrice(o.type, o.size, seg.size);
         outletEntry.unitPrice = price != null ? price : null;
       }
       targetArray.push(outletEntry);
@@ -1504,7 +1535,9 @@ document.getElementById('oneDriveBtn').addEventListener('click', async ()=>{
   }
   // The PDF goes to whichever priority folder is selected on the fab sheet —
   // just one copy, no duplicates.
-  const pdfFolderUrl = jobInfo.priority === 'eod' ? GRAPH_CONFIG.byEndOfDayFolderUrl : GRAPH_CONFIG.whenConvenientFolderUrl;
+  const pdfFolderUrl = jobInfo.priority === 'eod' ? GRAPH_CONFIG.byEndOfDayFolderUrl
+    : jobInfo.priority === 'service' ? GRAPH_CONFIG.serviceFolderUrl
+    : GRAPH_CONFIG.whenConvenientFolderUrl;
   if(pdfFolderUrl === 'YOUR-WHEN-CONVENIENT-FOLDER-URL-HERE' || pdfFolderUrl === 'YOUR-BY-END-OF-DAY-FOLDER-URL-HERE'){
     showToast("That priority folder isn't set up yet — send its OneDrive link to finish this");
     return;
