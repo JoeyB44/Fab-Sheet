@@ -1361,13 +1361,13 @@ function fabFileName(){
 const GRAPH_CONFIG = {
   clientId: '0a9967d1-5a62-4935-8d7d-8eb8042f7096', // Application (client) ID from Azure AD
   tenantId: '630c2ce7-d11d-45d1-be9d-cb5cba18b88c', // Directory (tenant) ID from Azure AD
-  // Sharing links for the two destination OneDrive folders (already set from your links):
-  // "When Convenient" reuses the original New Fab Sheets folder; "By End of
-  // Day" is a separate folder. The PDF goes to whichever one is selected —
-  whenConvenientFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/jeremyg_pipco-co_com/IgA0aHtqOYs4Rpsc4Gzwwy-9AZkGE82wO91j6Z8HaNB43Do?e=9ZAwW3',
-  byEndOfDayFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/jeremyg_pipco-co_com/IgBOQUjox_8lR5i1cz47i3XdAY6nXnEOecbVWl4Jm-ItS74?e=AJNV1m',
-  serviceFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/jeremyg_pipco-co_com/IgAbdvRRYJvWS4F3eMZQ_UNlAUwD-ryiRM-Xh0Xd7gnaTxs?e=r6Efmj',
-  fabSheetsDataFolderUrl: 'https://pipcoco-my.sharepoint.com/:f:/g/personal/fpshop_pipco-co_com/IgA1IiFgNUfSRKJ4IjQ3Ej3GAdziJr9ln10UmvFTA_HI7bc?e=Y5EN48',
+  // Sharing links for the destination folders — now on the PIPCOFire SharePoint
+  // site (moved off personal OneDrive accounts). The PDF goes to whichever
+  // priority folder is selected; the JSON data always goes to fabSheetsDataFolderUrl.
+  whenConvenientFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgCJqNNJdHViQpa7P71WgMB4AY9_IceFgx5dD-HSE7ii8gk?e=5yRun2',
+  byEndOfDayFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgARRGDZapNlQoTCJwxcQqbEAdukjN9t-pwaxGM017sOc40?e=gfArjS',
+  serviceFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgBolYMGu9vtTIEcNUKefhPkAW2YPjXM4EMH45p2I4Wxa3w?e=MMnJtM',
+  fabSheetsDataFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgBc7trrqNWmRZHCLfEhYZsLAbPmTk_CxS2QG9OSXz1MBeA?e=HfeX4R',
 };
 
 let msalInstance = null;
