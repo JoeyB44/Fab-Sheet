@@ -283,6 +283,7 @@ main{padding:14px;}
 <div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script type="text/javascript" src="https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js" integrity="sha384-PARf28kmic36Ve+O3DnUerRXFtOQ7ZDqRDGpLcbljly5/N39T2OV3kt3QsWOKeAX" crossorigin="anonymous"></script>
 
 <script>
@@ -1368,6 +1369,10 @@ const GRAPH_CONFIG = {
   byEndOfDayFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgARRGDZapNlQoTCJwxcQqbEAdukjN9t-pwaxGM017sOc40?e=gfArjS',
   serviceFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgBolYMGu9vtTIEcNUKefhPkAW2YPjXM4EMH45p2I4Wxa3w?e=MMnJtM',
   fabSheetsDataFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgBc7trrqNWmRZHCLfEhYZsLAbPmTk_CxS2QG9OSXz1MBeA?e=HfeX4R',
+  // Blank master FIRE INVENTORY workbook (read only — never modified) and the
+  // folder where each job's filled-in copy is saved as <job>.xlsx.
+  masterWorkbookUrl: 'https://pipcoco.sharepoint.com/:x:/s/PIPCOFire/IQDeqdIiob0iQanGkgG4HE4-AZNlNxjQWZgr6kdDLGYUXos?e=HPIvp8',
+  completedFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgBS_sVsdfNYRoaNlhDsm98cAWjQFqxMzldG5EGG5MkQRAE?e=jpqn7V',
 };
 
 let msalInstance = null;
@@ -1526,6 +1531,156 @@ function fabSlug(){
   return jobInfo.name ? jobInfo.name.trim().replace(/[^a-z0-9]+/gi,'-').replace(/^-+|-+$/g,'') : 'pipe-fab-sheet';
 }
 
+// ---------------- Fill the FIRE INVENTORY workbook in the app ----------------
+// Downloads the blank master workbook, adds this job's quantities to the same
+// cells the old Office Script used, and returns the finished .xlsx as a Blob.
+// Only the quantity cells in sheet1.xml are touched; formatting and formulas
+// stay exactly as in the master, and Excel recalculates totals on open.
+const XL_EPS = 0.001;
+const XL_PIPE_SECTIONS = [
+  { sch:'Sch 40', mat:'Black', start:5,  end:15 }, { sch:'Sch 10', mat:'Black', start:17, end:24 },
+  { sch:'Sch 40', mat:'Galv',  start:26, end:35 }, { sch:'Sch 10', mat:'Galv',  start:37, end:42 }
+];
+const XL_OUTLET_SECTIONS = {
+  threaded: { item:'B', qty:'A', start:424, end:449 },
+  grooved:  { item:'F', qty:'E', start:433, end:455 },
+  igs:      { item:'B', qty:'A', start:451, end:455 }
+};
+const XL_FITTING_SECTIONS = {
+  tee: { item:'F', qty:'E', start:5, end:10 }, '90el': { item:'F', qty:'E', start:12, end:18 },
+  union: { item:'F', qty:'E', start:46, end:52 }, coupling: { item:'F', qty:'E', start:76, end:81 },
+  reducingtee: { item:'B', qty:'A', start:61, end:95 }, redcoupling: { item:'B', qty:'A', start:97, end:110 }
+};
+function xlParseInch(raw){
+  if(!raw) return null;
+  const str = String(raw).trim().replace(/"/g,'');
+  let m = str.match(/^(\d+)[\s-](\d+)\/(\d+)$/);
+  if(m) return parseInt(m[1]) + parseInt(m[2])/parseInt(m[3]);
+  m = str.match(/^(\d+)\/(\d+)$/);
+  if(m) return parseInt(m[1])/parseInt(m[2]);
+  const n = parseFloat(str);
+  return isNaN(n) ? null : n;
+}
+function xlParseRange(label){
+  const parts = label.split(/\s*x\s*/i);
+  if(parts.length !== 2) return null;
+  const outlet = xlParseInch(parts[0]); if(outlet === null) return null;
+  const rp = parts[1].trim(), d = rp.split(/\s*-\s*/);
+  if(d.length === 2){
+    const a = xlParseInch(d[0]), b = xlParseInch(d[1]);
+    if(a === null || b === null) return null;
+    return { outlet, low: Math.min(a,b), high: Math.max(a,b) };
+  }
+  const one = xlParseInch(rp); if(one === null) return null;
+  return { outlet, low: one, high: one };
+}
+function xlParseDims(label){
+  const dims = label.replace(/\([^)]*\)/g,'').trim().split(/\s*x\s*/i).map(p=>xlParseInch(p.trim()));
+  return dims.some(d=>d===null) ? null : dims;
+}
+function xlUnescape(s){ return s.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&'); }
+function xlSharedStrings(xml){
+  return (xml.match(/<si>[\s\S]*?<\/si>/g) || []).map(si =>
+    xlUnescape((si.match(/<t[^>]*>[\s\S]*?<\/t>/g) || []).map(t=>t.replace(/<[^>]+>/g,'')).join('')));
+}
+// Returns { xml, matched[], unmatched[] }
+function xlFillSheet(sheetXml, shared, data){
+  let xml = sheetXml;
+  const cellRe = ref => new RegExp('<c r="' + ref + '"((?: [^>/]*)?)(/>|>([\\s\\S]*?)</c>)');
+  const text = ref => {
+    const m = xml.match(cellRe(ref));
+    if(!m || m[2] === '/>') return '';
+    const v = m[3].match(/<v>([\s\S]*?)<\/v>/); if(!v) return '';
+    return /t="s"/.test(m[1]) ? (shared[parseInt(v[1])] || '') : v[1];
+  };
+  const number = ref => {
+    const m = xml.match(cellRe(ref));
+    if(!m || m[2] === '/>') return 0;
+    const v = m[3].match(/<v>([\s\S]*?)<\/v>/);
+    const n = v ? parseFloat(v[1]) : 0; return isNaN(n) ? 0 : n;
+  };
+  const setNumber = (ref, value) => {
+    const m = xml.match(cellRe(ref));
+    if(!m) throw new Error('cell ' + ref + ' not in template');
+    const attrs = m[1].replace(/ t="[^"]*"/g,'');
+    const val = String(Math.round(value * 1e6) / 1e6);
+    xml = xml.slice(0, m.index) + '<c r="' + ref + '"' + attrs + '><v>' + val + '</v></c>' + xml.slice(m.index + m[0].length);
+  };
+  const matched = [], unmatched = [];
+
+  (data.pipeLength || []).forEach(e=>{
+    if(e.lengthDecimalFt == null) return;
+    const sec = XL_PIPE_SECTIONS.find(s=>s.sch === e.schedule && s.mat === e.material);
+    if(!sec){ unmatched.push('Pipe #' + e.pipeNum + ': no section for ' + e.schedule + ' ' + e.material); return; }
+    const target = xlParseInch(e.size); let found = false;
+    for(let r = sec.start; r <= sec.end; r++){
+      const label = text('B' + r), ls = xlParseInch(label);
+      if(ls !== null && target !== null && Math.abs(ls - target) < XL_EPS){
+        setNumber('A' + r, number('A' + r) + e.lengthDecimalFt);
+        matched.push('Pipe #' + e.pipeNum + ' -> A' + r + ' (' + label + ')'); found = true; break;
+      }
+    }
+    if(!found) unmatched.push('Pipe #' + e.pipeNum + ': no row for ' + e.schedule + ' ' + e.material + ' ' + e.size);
+  });
+
+  [['threaded','threadedOutlets'],['grooved','groovedOutlets'],['igs','igsOutlets']].forEach(([typ,key])=>{
+    const sec = XL_OUTLET_SECTIONS[typ];
+    (data[key] || []).forEach(e=>{
+      const ov = xlParseInch(e.outletSize), rv = xlParseInch(e.runPipeSize);
+      if(ov === null || rv === null){ unmatched.push(typ + ' outlet on pipe #' + e.pipeNum + ': unparseable size'); return; }
+      let found = false;
+      for(let r = sec.start; r <= sec.end; r++){
+        const label = text(sec.item + r), p = xlParseRange(label);
+        if(!p) continue;
+        if(Math.abs(p.outlet - ov) < XL_EPS && rv >= p.low - XL_EPS && rv <= p.high + XL_EPS){
+          setNumber(sec.qty + r, number(sec.qty + r) + 1);
+          matched.push(typ + ' outlet on pipe #' + e.pipeNum + ' -> ' + sec.qty + r); found = true; break;
+        }
+      }
+      if(!found) unmatched.push(typ + ' outlet on pipe #' + e.pipeNum + ': no row for ' + e.outletSize + ' x ' + e.runPipeSize);
+    });
+  });
+
+  (data.fittings || []).forEach(e=>{
+    const sec = XL_FITTING_SECTIONS[e.fittingType];
+    if(!sec){ unmatched.push('Fitting on pipe #' + e.pipeNum + ': unknown type ' + e.fittingType); return; }
+    const td = xlParseDims(e.size);
+    if(!td){ unmatched.push('Fitting on pipe #' + e.pipeNum + ': unparseable size ' + e.size); return; }
+    let found = false;
+    for(let r = sec.start; r <= sec.end; r++){
+      const ld = xlParseDims(text(sec.item + r));
+      if(ld && ld.length === td.length && ld.every((v,i)=>Math.abs(v - td[i]) < XL_EPS)){
+        const q = e.qty || 1;
+        setNumber(sec.qty + r, number(sec.qty + r) + q);
+        matched.push(e.fittingType + ' on pipe #' + e.pipeNum + ' -> ' + sec.qty + r); found = true; break;
+      }
+    }
+    if(!found) unmatched.push(e.fittingType + ' on pipe #' + e.pipeNum + ': no row for ' + e.size);
+  });
+  return { xml, matched, unmatched };
+}
+
+async function buildFilledWorkbook(token, data){
+  if(!window.JSZip) throw new Error('Excel tool did not load');
+  const { driveId, itemId } = await resolveFolder(token, GRAPH_CONFIG.masterWorkbookUrl); // works for any shared item
+  const res = await fetch(`https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}/content`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if(!res.ok) throw new Error(`Couldn't read master workbook (${res.status})`);
+  const zip = await JSZip.loadAsync(await res.arrayBuffer());
+  const shared = xlSharedStrings(await zip.file('xl/sharedStrings.xml').async('string'));
+  const out = xlFillSheet(await zip.file('xl/worksheets/sheet1.xml').async('string'), shared, data);
+  zip.file('xl/worksheets/sheet1.xml', out.xml);
+  let wb = await zip.file('xl/workbook.xml').async('string');
+  wb = wb.replace(/<calcPr([^>]*?)\/>/, (m, a) => /fullCalcOnLoad/.test(a) ? m : `<calcPr${a} fullCalcOnLoad="1"/>`);
+  zip.file('xl/workbook.xml', wb);
+  const blob = await zip.generateAsync({
+    type: 'blob', compression: 'DEFLATE',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  });
+  return { blob, unmatched: out.unmatched };
+}
+
 document.getElementById('oneDriveBtn').addEventListener('click', async ()=>{
   if(fabSheet.length === 0){ showToast("Fab sheet is empty"); return; }
   if(!window.jspdf){ showToast("PDF tool didn't load — check your internet connection"); return; }
@@ -1555,15 +1710,29 @@ document.getElementById('oneDriveBtn').addEventListener('click', async ()=>{
   const slug = fabSlug();
   const pdfDoc = buildFabPdf();
   const pdfBlob = pdfDoc.output('blob');
-  const jsonBlob = new Blob([JSON.stringify(buildFabJson(), null, 2)], { type: 'application/json' });
+  const fabData = buildFabJson();
+  const jsonBlob = new Blob([JSON.stringify(fabData, null, 2)], { type: 'application/json' });
 
   try{
     showToast("Uploading fab sheet…");
     await uploadFileToFolder(token, pdfFolderUrl, `${slug}.pdf`, pdfBlob);
     await uploadFileToFolder(token, GRAPH_CONFIG.fabSheetsDataFolderUrl, `${slug}.json`, jsonBlob);
-    showToast("Shared to OneDrive");
   }catch(e){
     showToast("Upload failed: " + e.message);
+    return;
+  }
+
+  // Fill the inventory workbook and save it, already named, to Completed.
+  // Runs after the PDF/JSON so a problem here never blocks the fab sheet itself.
+  try{
+    showToast("Filling inventory sheet…");
+    const { blob, unmatched } = await buildFilledWorkbook(token, fabData);
+    await uploadFileToFolder(token, GRAPH_CONFIG.completedFolderUrl, `${slug}.xlsx`, blob);
+    showToast(unmatched.length
+      ? `Shared — ${unmatched.length} item(s) had no inventory row: ${unmatched[0]}`
+      : "Shared to OneDrive");
+  }catch(e){
+    showToast("Fab sheet shared, but inventory sheet failed: " + e.message);
   }
 });
 
