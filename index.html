@@ -493,10 +493,28 @@ function getOutletSizeOptionsForRun(runSizeStr){
   return Array.from(sizes).sort((a,b) => parseInchSize(a) - parseInchSize(b));
 }
 
+// IGS outlets are chosen by their exact catalog row (e.g. 1" x 1-1/4"-1-1/2"),
+// because the row picked has to match the right line on the FIRE INVENTORY
+// sheet. Returns the IGS catalog items whose range covers this run size.
+function getIgsItemsForRun(runSizeStr){
+  const cat = findCat(OUTLET_CAT_NAMES.igs);
+  if(!cat) return [];
+  const runSize = parseInchSize(runSizeStr);
+  return cat.items.filter(it=>{
+    const parsed = parseOutletItemName(it.n);
+    if(!parsed) return false;
+    return runSize == null || (runSize >= parsed.runMin - 1e-6 && runSize <= parsed.runMax + 1e-6);
+  }).map(it=>it.n);
+}
+
 // Looks up an outlet's price by type + outlet size + the pipe run's Size
 // (to pick the right size-range bracket).
-function getOutletPrice(type, outletSize, runSizeStr){
+function getOutletPrice(type, outletSize, runSizeStr, igsItem){
   const cat = findCat(OUTLET_CAT_NAMES[type]);
+  if(type === 'igs' && igsItem && cat){
+    const hit = cat.items.find(it=>it.n === igsItem);
+    return hit && hit.p != null ? hit.p : null;
+  }
   if(!cat || !outletSize || !runSizeStr) return null;
   const runSize = parseInchSize(runSizeStr);
   if(runSize == null) return null;
@@ -679,6 +697,14 @@ async function loadFabSheet(){
   try{ const res = await storageGet(FAB_KEY); if(res && res.value) fabSheet = JSON.parse(res.value); }catch(e){ fabSheet = []; }
   // Pipe runs saved before the Fittings feature existed won't have this
   // array — patch them up so every segment has one, regardless of age.
+  // IGS outlets saved before range-picking existed: adopt the range if only one fits.
+  fabSheet.forEach(seg => (seg.outlets||[]).forEach(o => {
+    if(o.type === 'igs' && o.igsItem === undefined){
+      const opts = getIgsItemsForRun(seg.size);
+      o.igsItem = opts.length === 1 ? opts[0] : '';
+      if(o.igsItem) o.size = parseOutletItemName(o.igsItem).outletSize;
+    }
+  }));
   fabSheet.forEach(seg => {
     if(!seg.fittings) seg.fittings = [];
     if(seg.endPrep === 'gt') seg.endPrep = 'tg'; // GT and TG merged into one option
@@ -731,7 +757,7 @@ function segmentCost(seg){
   const pipeCost = (pipePricePerFt != null && seg.length != null) ? pipePricePerFt * seg.length : 0;
   let outletsCost = 0;
   (seg.outlets || []).forEach(o=>{
-    const p = getOutletPrice(o.type, o.size, seg.size);
+    const p = getOutletPrice(o.type, o.size, seg.size, o.igsItem);
     if(p != null) outletsCost += p;
   });
   let fittingsCost = 0;
@@ -877,7 +903,7 @@ function renderPipeCard(seg){
   const epChip = (key, label) => `<button class="toggle-chip ${seg.endPrep===key?'active':''}" data-action="set-endprep" data-seg="${seg.id}" data-value="${key}">${label}</button>`;
 
   const outletsHtml = (seg.outlets || []).map(o=>{
-    const price = getOutletPrice(o.type, o.size, seg.size);
+    const price = getOutletPrice(o.type, o.size, seg.size, o.igsItem);
     return `
     <div class="outlet-row">
       <input class="outlet-pos" type="text" placeholder="From left (e.g. 10-6)" value="${escapeHtml(o.posText||'')}" data-field="outletPos" data-seg="${seg.id}" data-outlet="${o.id}">
@@ -888,7 +914,7 @@ function renderPipeCard(seg){
         <option value="igs" ${o.type==='igs'?'selected':''}>IGS outlet</option>
       </select>
       <select class="outlet-size" data-field="outletItemSize" data-seg="${seg.id}" data-outlet="${o.id}">
-        ${sizeOptionsHtml(outletSizeOptions, o.size)}
+        ${o.type==='igs' ? sizeOptionsHtml(getIgsItemsForRun(seg.size), o.igsItem) : sizeOptionsHtml(outletSizeOptions, o.size)}
       </select>
       <select class="outlet-dir" data-field="outletDir" data-seg="${seg.id}" data-outlet="${o.id}">
         <option value="">Direction…</option>
@@ -1080,17 +1106,38 @@ document.getElementById('fabCards').addEventListener('change', (e)=>{
   if(field === 'size'){
     seg.size = el.value;
     const validSizes = getOutletSizeOptionsForRun(seg.size);
-    (seg.outlets||[]).forEach(o => { if(o.size && !validSizes.includes(o.size)) o.size = ''; });
+    const validIgs = getIgsItemsForRun(seg.size);
+    (seg.outlets||[]).forEach(o => {
+      if(o.type === 'igs'){
+        if(!validIgs.includes(o.igsItem)){ o.igsItem = validIgs.length === 1 ? validIgs[0] : ''; }
+        o.size = o.igsItem ? parseOutletItemName(o.igsItem).outletSize : '';
+      }
+      else if(o.size && !validSizes.includes(o.size)) o.size = '';
+    });
     if(!isFittingsEligible(seg)) seg.fittings = [];
     saveFabSheet(); renderFabSheet();
   }
   else if(field === 'outletItemSize'){
     const outlet = findOutlet(seg, el.dataset.outlet);
-    if(outlet){ outlet.size = el.value; saveFabSheet(); renderFabSheet(); }
+    if(outlet){
+      if(outlet.type === 'igs'){
+        outlet.igsItem = el.value;
+        outlet.size = el.value ? parseOutletItemName(el.value).outletSize : '';
+      } else { outlet.size = el.value; }
+      saveFabSheet(); renderFabSheet();
+    }
   }
   else if(field === 'outletType'){
     const outlet = findOutlet(seg, el.dataset.outlet);
-    if(outlet){ outlet.type = el.value; saveFabSheet(); renderFabSheet(); }
+    if(outlet){
+      outlet.type = el.value;
+      outlet.size = ''; outlet.igsItem = '';  // size choices differ by type, so start fresh
+      if(el.value === 'igs'){
+        const opts = getIgsItemsForRun(seg.size);
+        if(opts.length === 1){ outlet.igsItem = opts[0]; outlet.size = parseOutletItemName(opts[0]).outletSize; }
+      }
+      saveFabSheet(); renderFabSheet();
+    }
   }
   else if(field === 'outletDir'){
     const outlet = findOutlet(seg, el.dataset.outlet);
@@ -1489,13 +1536,16 @@ function buildFabJson(){
         pipeNum,
         outletSize: o.size || '',
         outletSizeDecimal: o.size ? parseInchSize(o.size) : null,
+        // IGS only: the exact inventory row picked, written like the sheet's
+        // own label (mixed numbers with spaces) e.g. '1" x 1 1/4"-1 1/2"'.
+        igsRange: (o.type === 'igs' && o.igsItem) ? o.igsItem.replace(/(\d)-(\d+\/\d+)/g, '$1 $2') : undefined,
         positionFromLeft: o.pos != null ? formatFeetInches(o.pos) : '',
         direction: dirLabel,
         runPipeSize: seg.size || '',
         runPipeSizeDecimal: seg.size ? parseInchSize(seg.size) : null
       };
       if(showPricing){
-        const price = getOutletPrice(o.type, o.size, seg.size);
+        const price = getOutletPrice(o.type, o.size, seg.size, o.igsItem);
         outletEntry.unitPrice = price != null ? price : null;
       }
       targetArray.push(outletEntry);
@@ -1631,10 +1681,14 @@ function xlFillSheet(sheetXml, shared, data){
       const ov = xlParseInch(e.outletSize), rv = xlParseInch(e.runPipeSize);
       if(ov === null || rv === null){ unmatched.push(typ + ' outlet on pipe #' + e.pipeNum + ': unparseable size'); return; }
       let found = false;
+      const want = e.igsRange ? xlParseRange(e.igsRange) : null;  // exact row chosen in the app
       for(let r = sec.start; r <= sec.end; r++){
         const label = text(sec.item + r), p = xlParseRange(label);
         if(!p) continue;
-        if(Math.abs(p.outlet - ov) < XL_EPS && rv >= p.low - XL_EPS && rv <= p.high + XL_EPS){
+        const hit = want
+          ? Math.abs(p.outlet - want.outlet) < XL_EPS && Math.abs(p.low - want.low) < XL_EPS && Math.abs(p.high - want.high) < XL_EPS
+          : Math.abs(p.outlet - ov) < XL_EPS && rv >= p.low - XL_EPS && rv <= p.high + XL_EPS;
+        if(hit){
           setNumber(sec.qty + r, number(sec.qty + r) + 1);
           matched.push(typ + ' outlet on pipe #' + e.pipeNum + ' -> ' + sec.qty + r); found = true; break;
         }
