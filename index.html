@@ -1373,6 +1373,8 @@ const GRAPH_CONFIG = {
   // folder where each job's filled-in copy is saved as <job>.xlsx.
   masterWorkbookUrl: 'https://pipcoco.sharepoint.com/:x:/s/PIPCOFire/IQDeqdIiob0iQanGkgG4HE4-AZNlNxjQWZgr6kdDLGYUXos?e=HPIvp8',
   completedFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgBS_sVsdfNYRoaNlhDsm98cAWjQFqxMzldG5EGG5MkQRAE?e=jpqn7V',
+  // Service jobs save their filled workbook here instead of completedFolderUrl.
+  serviceCompletedFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgCLkR_rhKkOQ685YJ25u_CMAdVJQEokXK8kM7RrPHr7-ts?e=gg05LX',
 };
 
 let msalInstance = null;
@@ -1727,7 +1729,8 @@ document.getElementById('oneDriveBtn').addEventListener('click', async ()=>{
   try{
     showToast("Filling inventory sheet…");
     const { blob, unmatched } = await buildFilledWorkbook(token, fabData);
-    await uploadFileToFolder(token, GRAPH_CONFIG.completedFolderUrl, `${slug}.xlsx`, blob);
+    const completedUrl = jobInfo.priority === 'service' ? GRAPH_CONFIG.serviceCompletedFolderUrl : GRAPH_CONFIG.completedFolderUrl;
+    await uploadFileToFolder(token, completedUrl, `${slug}.xlsx`, blob);
     showToast(unmatched.length
       ? `Shared — ${unmatched.length} item(s) had no inventory row: ${unmatched[0]}`
       : "Shared to OneDrive");
