@@ -1417,7 +1417,7 @@ const GRAPH_CONFIG = {
   serviceFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgBolYMGu9vtTIEcNUKefhPkAW2YPjXM4EMH45p2I4Wxa3w?e=MMnJtM',
   fabSheetsDataFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgBc7trrqNWmRZHCLfEhYZsLAbPmTk_CxS2QG9OSXz1MBeA?e=HfeX4R',
   // Blank master FIRE INVENTORY workbook (read only — never modified) and the
-  // folder where each job's filled-in copy is saved as <job>.xlsx.
+  // folders where each job's filled-in copy (.xlsx + .pdf) is saved.
   masterWorkbookUrl: 'https://pipcoco.sharepoint.com/:x:/s/PIPCOFire/IQDeqdIiob0iQanGkgG4HE4-AZNlNxjQWZgr6kdDLGYUXos?e=HPIvp8',
   completedFolderUrl: 'https://pipcoco.sharepoint.com/:f:/s/PIPCOFire/IgBS_sVsdfNYRoaNlhDsm98cAWjQFqxMzldG5EGG5MkQRAE?e=jpqn7V',
   // Service jobs save their filled workbook here instead of completedFolderUrl.
@@ -1586,8 +1586,9 @@ function fabSlug(){
 // ---------------- Fill the FIRE INVENTORY workbook in the app ----------------
 // Downloads the blank master workbook, adds this job's quantities to the same
 // cells the old Office Script used, and returns the finished .xlsx as a Blob.
-// Only the quantity cells in sheet1.xml are touched; formatting and formulas
-// stay exactly as in the master, and Excel recalculates totals on open.
+// Only cells in sheet1.xml are touched; formatting stays exactly as in the
+// master. A pipe run's Quantity multiplies its length, outlets and fittings,
+// the same way the app's own run totals work.
 const XL_EPS = 0.001;
 const XL_PIPE_SECTIONS = [
   { sch:'Sch 40', mat:'Black', start:5,  end:15 }, { sch:'Sch 10', mat:'Black', start:17, end:24 },
@@ -1659,6 +1660,10 @@ function xlFillSheet(sheetXml, shared, data){
     xml = xml.slice(0, m.index) + '<c r="' + ref + '"' + attrs + '><v>' + val + '</v></c>' + xml.slice(m.index + m[0].length);
   };
   const matched = [], unmatched = [];
+  // Pipe run Quantity (e.g. 3 identical pieces) multiplies everything on that run.
+  const runQty = {};
+  (data.pipeLength || []).forEach(e=>{ runQty[e.pipeNum] = parseFloat(e.qty) || 1; });
+  const mult = pipeNum => runQty[pipeNum] || 1;
 
   (data.pipeLength || []).forEach(e=>{
     if(e.lengthDecimalFt == null) return;
@@ -1668,7 +1673,7 @@ function xlFillSheet(sheetXml, shared, data){
     for(let r = sec.start; r <= sec.end; r++){
       const label = text('B' + r), ls = xlParseInch(label);
       if(ls !== null && target !== null && Math.abs(ls - target) < XL_EPS){
-        setNumber('A' + r, number('A' + r) + e.lengthDecimalFt);
+        setNumber('A' + r, number('A' + r) + e.lengthDecimalFt * mult(e.pipeNum));
         matched.push('Pipe #' + e.pipeNum + ' -> A' + r + ' (' + label + ')'); found = true; break;
       }
     }
@@ -1689,7 +1694,7 @@ function xlFillSheet(sheetXml, shared, data){
           ? Math.abs(p.outlet - want.outlet) < XL_EPS && Math.abs(p.low - want.low) < XL_EPS && Math.abs(p.high - want.high) < XL_EPS
           : Math.abs(p.outlet - ov) < XL_EPS && rv >= p.low - XL_EPS && rv <= p.high + XL_EPS;
         if(hit){
-          setNumber(sec.qty + r, number(sec.qty + r) + 1);
+          setNumber(sec.qty + r, number(sec.qty + r) + mult(e.pipeNum));
           matched.push(typ + ' outlet on pipe #' + e.pipeNum + ' -> ' + sec.qty + r); found = true; break;
         }
       }
@@ -1706,13 +1711,14 @@ function xlFillSheet(sheetXml, shared, data){
     for(let r = sec.start; r <= sec.end; r++){
       const ld = xlParseDims(text(sec.item + r));
       if(ld && ld.length === td.length && ld.every((v,i)=>Math.abs(v - td[i]) < XL_EPS)){
-        const q = e.qty || 1;
+        const q = (e.qty || 1) * mult(e.pipeNum);
         setNumber(sec.qty + r, number(sec.qty + r) + q);
         matched.push(e.fittingType + ' on pipe #' + e.pipeNum + ' -> ' + sec.qty + r); found = true; break;
       }
     }
     if(!found) unmatched.push(e.fittingType + ' on pipe #' + e.pipeNum + ': no row for ' + e.size);
   });
+
   // SharePoint's PDF converter prints the values saved in the file and does
   // not recalculate, so refresh every line total (D = A x C, H = E x G) and the
   // grand total (H2) ourselves. Excel still recalculates on open.
