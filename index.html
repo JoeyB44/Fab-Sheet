@@ -1784,10 +1784,21 @@ document.getElementById('oneDriveBtn').addEventListener('click', async ()=>{
     showToast("Filling inventory sheet…");
     const { blob, unmatched } = await buildFilledWorkbook(token, fabData);
     const completedUrl = jobInfo.priority === 'service' ? GRAPH_CONFIG.serviceCompletedFolderUrl : GRAPH_CONFIG.completedFolderUrl;
-    await uploadFileToFolder(token, completedUrl, `${slug}.xlsx`, blob);
+    const saved = await uploadFileToFolder(token, completedUrl, `${slug}.xlsx`, blob);
+    // Ask SharePoint to render the workbook it just received as a PDF and save
+    // it next to the .xlsx. If this step fails the .xlsx is still there.
+    let pdfNote = '';
+    try{
+      showToast("Making inventory PDF…");
+      const pdfRes = await fetch(`https://graph.microsoft.com/v1.0/drives/${saved.parentReference.driveId}/items/${saved.id}/content?format=pdf`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if(!pdfRes.ok) throw new Error(pdfRes.status);
+      await uploadFileToFolder(token, completedUrl, `${slug}.pdf`, new Blob([await pdfRes.arrayBuffer()], { type: 'application/pdf' }));
+    }catch(pe){ pdfNote = ' (inventory PDF failed: ' + pe.message + ')'; }
     showToast(unmatched.length
-      ? `Shared — ${unmatched.length} item(s) had no inventory row: ${unmatched[0]}`
-      : "Shared to OneDrive");
+      ? `Shared — ${unmatched.length} item(s) had no inventory row: ${unmatched[0]}${pdfNote}`
+      : "Shared to OneDrive" + pdfNote);
   }catch(e){
     showToast("Fab sheet shared, but inventory sheet failed: " + e.message);
   }
