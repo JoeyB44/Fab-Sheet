@@ -1713,6 +1713,23 @@ function xlFillSheet(sheetXml, shared, data){
     }
     if(!found) unmatched.push(e.fittingType + ' on pipe #' + e.pipeNum + ': no row for ' + e.size);
   });
+  // SharePoint's PDF converter prints the values saved in the file and does
+  // not recalculate, so refresh every line total (D = A x C, H = E x G) and the
+  // grand total (H2) ourselves. Excel still recalculates on open.
+  const setCached = (ref, val) => {
+    const m = xml.match(cellRe(ref));
+    if(!m || m[2] === '/>' || !/<f[ >\/]/.test(m[3])) return;
+    const v = String(Math.round(val * 1e6) / 1e6);
+    const inner = /<v>[\s\S]*?<\/v>/.test(m[3]) ? m[3].replace(/<v>[\s\S]*?<\/v>/, '<v>' + v + '</v>') : m[3] + '<v>' + v + '</v>';
+    const attrs = m[1].replace(/ t="[^"]*"/g, '');
+    xml = xml.slice(0, m.index) + '<c r="' + ref + '"' + attrs + '>' + inner + '</c>' + xml.slice(m.index + m[0].length);
+  };
+  let grand = 0;
+  for(let r = 5; r <= 494; r++){
+    const d = number('A' + r) * number('C' + r); setCached('D' + r, d); grand += d;
+    if(r <= 492){ const h = number('E' + r) * number('G' + r); setCached('H' + r, h); grand += h; }
+  }
+  setCached('H2', grand);
   return { xml, matched, unmatched };
 }
 
