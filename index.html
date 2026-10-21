@@ -493,11 +493,11 @@ function getOutletSizeOptionsForRun(runSizeStr){
   return Array.from(sizes).sort((a,b) => parseInchSize(a) - parseInchSize(b));
 }
 
-// IGS outlets are chosen by their exact catalog row (e.g. 1" x 1-1/4"-1-1/2"),
+// IGS and grooved outlets are chosen by their exact catalog row (e.g. 1" x 1-1/4"-1-1/2"),
 // because the row picked has to match the right line on the FIRE INVENTORY
 // sheet. Returns the IGS catalog items whose range covers this run size.
-function getIgsItemsForRun(runSizeStr){
-  const cat = findCat(OUTLET_CAT_NAMES.igs);
+function getRowItemsForRun(type, runSizeStr){
+  const cat = findCat(OUTLET_CAT_NAMES[type]);
   if(!cat) return [];
   const runSize = parseInchSize(runSizeStr);
   return cat.items.filter(it=>{
@@ -511,7 +511,7 @@ function getIgsItemsForRun(runSizeStr){
 // (to pick the right size-range bracket).
 function getOutletPrice(type, outletSize, runSizeStr, igsItem){
   const cat = findCat(OUTLET_CAT_NAMES[type]);
-  if(type === 'igs' && igsItem && cat){
+  if((type === 'igs' || type === 'grooved') && igsItem && cat){
     const hit = cat.items.find(it=>it.n === igsItem);
     return hit && hit.p != null ? hit.p : null;
   }
@@ -697,10 +697,10 @@ async function loadFabSheet(){
   try{ const res = await storageGet(FAB_KEY); if(res && res.value) fabSheet = JSON.parse(res.value); }catch(e){ fabSheet = []; }
   // Pipe runs saved before the Fittings feature existed won't have this
   // array — patch them up so every segment has one, regardless of age.
-  // IGS outlets saved before range-picking existed: adopt the range if only one fits.
+  // IGS/grooved outlets saved before range-picking existed: adopt the range if only one fits.
   fabSheet.forEach(seg => (seg.outlets||[]).forEach(o => {
-    if(o.type === 'igs' && o.igsItem === undefined){
-      const opts = getIgsItemsForRun(seg.size);
+    if((o.type === 'igs' || o.type === 'grooved') && o.igsItem === undefined){
+      const opts = getRowItemsForRun(o.type, seg.size);
       o.igsItem = opts.length === 1 ? opts[0] : '';
       if(o.igsItem) o.size = parseOutletItemName(o.igsItem).outletSize;
     }
@@ -914,7 +914,7 @@ function renderPipeCard(seg){
         <option value="igs" ${o.type==='igs'?'selected':''}>IGS outlet</option>
       </select>
       <select class="outlet-size" data-field="outletItemSize" data-seg="${seg.id}" data-outlet="${o.id}">
-        ${o.type==='igs' ? sizeOptionsHtml(getIgsItemsForRun(seg.size), o.igsItem) : sizeOptionsHtml(outletSizeOptions, o.size)}
+        ${(o.type==='igs'||o.type==='grooved') ? sizeOptionsHtml(getRowItemsForRun(o.type, seg.size), o.igsItem) : sizeOptionsHtml(outletSizeOptions, o.size)}
       </select>
       <select class="outlet-dir" data-field="outletDir" data-seg="${seg.id}" data-outlet="${o.id}">
         <option value="">Direction…</option>
@@ -1106,9 +1106,9 @@ document.getElementById('fabCards').addEventListener('change', (e)=>{
   if(field === 'size'){
     seg.size = el.value;
     const validSizes = getOutletSizeOptionsForRun(seg.size);
-    const validIgs = getIgsItemsForRun(seg.size);
     (seg.outlets||[]).forEach(o => {
-      if(o.type === 'igs'){
+      if(o.type === 'igs' || o.type === 'grooved'){
+        const validIgs = getRowItemsForRun(o.type, seg.size);
         if(!validIgs.includes(o.igsItem)){ o.igsItem = validIgs.length === 1 ? validIgs[0] : ''; }
         o.size = o.igsItem ? parseOutletItemName(o.igsItem).outletSize : '';
       }
@@ -1120,7 +1120,7 @@ document.getElementById('fabCards').addEventListener('change', (e)=>{
   else if(field === 'outletItemSize'){
     const outlet = findOutlet(seg, el.dataset.outlet);
     if(outlet){
-      if(outlet.type === 'igs'){
+      if(outlet.type === 'igs' || outlet.type === 'grooved'){
         outlet.igsItem = el.value;
         outlet.size = el.value ? parseOutletItemName(el.value).outletSize : '';
       } else { outlet.size = el.value; }
@@ -1132,8 +1132,8 @@ document.getElementById('fabCards').addEventListener('change', (e)=>{
     if(outlet){
       outlet.type = el.value;
       outlet.size = ''; outlet.igsItem = '';  // size choices differ by type, so start fresh
-      if(el.value === 'igs'){
-        const opts = getIgsItemsForRun(seg.size);
+      if(el.value === 'igs' || el.value === 'grooved'){
+        const opts = getRowItemsForRun(el.value, seg.size);
         if(opts.length === 1){ outlet.igsItem = opts[0]; outlet.size = parseOutletItemName(opts[0]).outletSize; }
       }
       saveFabSheet(); renderFabSheet();
@@ -1536,9 +1536,9 @@ function buildFabJson(){
         pipeNum,
         outletSize: o.size || '',
         outletSizeDecimal: o.size ? parseInchSize(o.size) : null,
-        // IGS only: the exact inventory row picked, written like the sheet's
+        // IGS and grooved: the exact inventory row picked, written like the sheet's
         // own label (mixed numbers with spaces) e.g. '1" x 1 1/4"-1 1/2"'.
-        igsRange: (o.type === 'igs' && o.igsItem) ? o.igsItem.replace(/(\d)-(\d+\/\d+)/g, '$1 $2') : undefined,
+        igsRange: ((o.type === 'igs' || o.type === 'grooved') && o.igsItem) ? o.igsItem.replace(/(\d)-(\d+\/\d+)/g, '$1 $2') : undefined,
         positionFromLeft: o.pos != null ? formatFeetInches(o.pos) : '',
         direction: dirLabel,
         runPipeSize: seg.size || '',
