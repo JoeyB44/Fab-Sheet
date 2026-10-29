@@ -1781,7 +1781,9 @@ function xlFillSheet(sheetXml, shared, data){
   // the total is hidden there; the real workbook keeps it.
   let xmlNoTotal = xml;
   const hm = xml.match(cellRe('H2'));
-  if(hm) xmlNoTotal = xml.slice(0, hm.index) + '<c r="H2"' + hm[1].replace(/ t="[^"]*"/g,'') + '/>' + xml.slice(hm.index + hm[0].length);
+  // Keep H2 as a formula (the workbook's calc chain lists it) but make it return
+  // blank text; deleting the formula outright can make Excel treat the file as damaged.
+  if(hm) xmlNoTotal = xml.slice(0, hm.index) + '<c r="H2"' + hm[1].replace(/ t="[^"]*"/g,'') + ' t="str"><f>""</f><v></v></c>' + xml.slice(hm.index + hm[0].length);
   return { xml, xmlNoTotal, matched, unmatched };
 }
 
@@ -1869,7 +1871,7 @@ document.getElementById('oneDriveBtn').addEventListener('click', async ()=>{
         const pdfRes = await fetch(`https://graph.microsoft.com/v1.0/drives/${temp.parentReference.driveId}/items/${temp.id}/content?format=pdf`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        if(!pdfRes.ok) throw new Error(pdfRes.status);
+        if(!pdfRes.ok){ let d = ''; try{ d = (await pdfRes.text()).slice(0,200); }catch(_){} console.error('PDF convert failed', pdfRes.status, d); throw new Error('convert ' + pdfRes.status); }
         await uploadFileToFolder(token, completedUrl, `${slug}.pdf`, new Blob([await pdfRes.arrayBuffer()], { type: 'application/pdf' }));
       } finally {
         fetch(`https://graph.microsoft.com/v1.0/drives/${temp.parentReference.driveId}/items/${temp.id}`, {
