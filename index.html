@@ -1493,8 +1493,26 @@ async function getGraphToken(){
       return result.accessToken;
     }catch(e){ /* fall through to interactive login */ }
   }
-  const result = await msalApp.loginPopup({ scopes });
-  return result.accessToken;
+  // A sign-in window that was closed, blocked or interrupted can leave Microsoft's
+  // login library stuck saying "interaction in progress". Clear that flag and retry once.
+  const clearStuckSignIn = () => {
+    [window.localStorage, window.sessionStorage].forEach(store => {
+      try{
+        Object.keys(store).filter(k => k.indexOf('interaction.status') !== -1).forEach(k => store.removeItem(k));
+      }catch(e){ /* storage unavailable */ }
+    });
+  };
+  try{
+    const result = await msalApp.loginPopup({ scopes });
+    return result.accessToken;
+  }catch(e){
+    if(e && (e.errorCode === 'interaction_in_progress' || /interaction_in_progress/.test(String(e.message)))){
+      clearStuckSignIn();
+      const result = await msalApp.loginPopup({ scopes });
+      return result.accessToken;
+    }
+    throw e;
+  }
 }
 
 // Converts a OneDrive/SharePoint sharing link into the Graph "shares" token
@@ -1811,7 +1829,13 @@ async function buildFilledWorkbook(token, data){
   return { blob, pdfSourceBlob, unmatched: out.unmatched };
 }
 
+let _shareBusy = false;
 document.getElementById('oneDriveBtn').addEventListener('click', async ()=>{
+  if(_shareBusy){ showToast("Still sharing — one moment"); return; }
+  _shareBusy = true;
+  try{ await shareToOneDrive(); } finally { _shareBusy = false; }
+});
+async function shareToOneDrive(){
   if(fabSheet.length === 0){ showToast("Fab sheet is empty"); return; }
   if(!window.jspdf){ showToast("PDF tool didn't load — check your internet connection"); return; }
   if(GRAPH_CONFIG.clientId === 'YOUR-CLIENT-ID-HERE'){
@@ -1885,7 +1909,7 @@ document.getElementById('oneDriveBtn').addEventListener('click', async ()=>{
   }catch(e){
     showToast("Fab sheet shared, but inventory sheet failed: " + e.message);
   }
-});
+}
 
 // ---------------- Init ----------------
 applyTheme();
